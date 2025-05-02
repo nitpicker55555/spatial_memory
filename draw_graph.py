@@ -61,7 +61,7 @@ def export_graph_json():
     G = build_maze_graph_oneway(EDGE_FILE)
     pos = directional_layout_3d(G)
 
-    base_directions = {"north", "south", "east", "west", "up", "down"}
+    base_directions = {"north", "south", "east", "west", "up", "down","southeast","northwest","southwest","northeast"}
     color_map = {
         "up": "gray",
         "down": "gray",
