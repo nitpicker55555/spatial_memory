@@ -48,16 +48,21 @@ def read_walkthrough(path: Path, max_steps: int = 70) -> str:
 
     steps = []
     current = []
+    started = False  # 标记是否开始遇到有效的 STEP
+
     for line in lines:
-        if line.startswith("STEP NUM:"):
-            if current:
+        if line.startswith("==>STEP NUM:"):
+            if started and current:
                 steps.append("".join(current))
                 current = []
-        current.append(line)
+            started = True  # 开始记录 step 内容
+        if started:
+            current.append(line)
+
     if current:
         steps.append("".join(current))
-
     return "\n".join(steps[:max_steps])
+    # return "\n".join(steps[:max_steps])
 
 def extract_last_location(response: str) -> str:
     match = re.findall(r"(?:You are in|You are at|Location:)\s(.+)", response)
@@ -211,7 +216,10 @@ def evaluate_model_on_df_rf(TASK_TYPE):
     return {"total": total, "correct": correct, "accuracy": correct / total if total else 0}
 
 # Run evaluation
-# route_finding/desti_finding
+# # route_finding/desti_finding
 data=evaluate_model_on_df_rf(TASK_TYPE="route_finding")
 with open("results.jsonl", "a", encoding="utf-8") as f:
     f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
+# walkthrough = read_walkthrough(DATA_DIR / "night.walkthrough", 70)
+# print(walkthrough)
