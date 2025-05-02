@@ -32,7 +32,7 @@ def message_template(role: str, content: str) -> Dict[str, str]:
 def chat_single(messages: List[Dict[str, str]],
                 mode: str = "",
                 model: str = 'gpt-4o',
-                temperature: float = 0,
+                temperature: float = 0.3,
                 verbose: bool = False):
     """发送单个聊天请求到OpenAI API。
 

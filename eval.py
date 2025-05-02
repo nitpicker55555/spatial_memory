@@ -21,7 +21,7 @@ def model(prompt: str,sys_prompt,key_name='location') -> str:
     }
     
     """%(key_name,key_name)
-    # print("sys_prompt",sys_prompt)
+    print("sys_prompt",sys_prompt)
     print("prompt",prompt)
     # 创建消息
     messages = [
@@ -110,6 +110,104 @@ def is_easy_rf(min_step_forward_answerable):
     如果整个路径的 min_step_forward_answerable == 9999，则为 hard。
     """
     return min_step_forward_answerable != 9999
+def single_desti_finding(task):
+    walkthrough = read_walkthrough(DATA_DIR / "night.walkthrough", MAX_STEP)
+    actions = load_json(DATA_DIR / "night.actions.json")
+    locations = load_json(DATA_DIR / "night.locations.json")
+
+
+    src = task["src_node"]
+    dst = task["dst_node"]
+
+    actions_list = [step["action"] for step in task["path_details"]]
+    sys_prompt = (
+        f"Walkthrough:\n{walkthrough}\n\n"
+        f"The allowed actions are: {', '.join(actions)}.\n"
+    )
+    prompt = (
+
+        f"The list of locations are: {', '.join(locations)}.\n\n"
+        f"Starting from {src}, perform actions {actions_list}, where are you now?"
+    )
+
+    response = model(prompt, sys_prompt)['location']
+    predicted = extract_last_location(response)
+
+    if predicted == dst.lower():
+
+        judge_correct = True
+    else:
+        judge_correct = False
+    print("predicted", predicted)
+    print("dst", dst)
+    print("judge_correct",judge_correct)
+
+    each_json = {
+        "question": prompt,
+        "response": response,
+        "predicted": predicted,
+        "dst": dst,
+        "judge_correct": judge_correct,
+        "easy": is_easy_df(task)
+
+    }
+    with open("results_each_desti_finding.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(each_json, ensure_ascii=False) + "\n")
+
+
+# If the graph is already built, draw it
+
+def single_route_finding(task):
+    walkthrough = read_walkthrough(DATA_DIR / "night.walkthrough", MAX_STEP)
+    actions = load_json(DATA_DIR / "night.actions.json")
+    locations = load_json(DATA_DIR / "night.locations.json")
+    edges_data = load_json(DATA_DIR / "night.edges.json")
+    maze_graph = nx.DiGraph()
+    for edge in edges_data:
+        src = edge["src_node"].lower()
+        dst = edge["dst_node"].lower()
+        action = edge["action"].lower()
+        maze_graph.add_edge(src, dst, action=action)
+    correct = 0
+    total = 0
+    src = task["src_node"]
+    dst = task["dst_node"]
+    sys_prompt = (
+        f"Walkthrough:\n{walkthrough}\n\n"
+        f"The allowed actions are: {', '.join(actions)}.\n"
+        f"The list of locations are: {', '.join(locations)}.\n\n"
+    )
+    prompt = (
+        f"How can you go from {src} to {dst}?\n"
+        f"Describe the trajectory in a Python list of dictionaries "
+        f"with keys 'prev_node', 'action', and 'node'."
+    )
+
+    response = model(prompt, sys_prompt, key_name="trajectory")['trajectory']
+    pred_path = None
+    path_eval = is_path_valid(response, src, dst, maze_graph)
+    if path_eval[0]:
+        correct += 1
+        judge_correct = True
+    else:
+        judge_correct = False
+
+    total += 1
+    print("predicted", response)
+    print("dst", dst)
+    print("judge_correct",judge_correct)
+    each_json = {
+        "question": prompt,
+        "response": response,
+        "predicted": pred_path,
+        "dst": dst,
+        "judge_correct": judge_correct,
+        "easy": is_easy_rf(task),
+        "judge_reason": str(path_eval),
+
+    }
+    with open("results_each_route_finding.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(each_json, ensure_ascii=False) + "\n")
 # --------- MAIN EVALUATION FUNCTION ---------
 def evaluate_model_on_df_rf(TASK_TYPE):
     walkthrough = read_walkthrough(DATA_DIR / "night.walkthrough", MAX_STEP)
@@ -132,42 +230,7 @@ def evaluate_model_on_df_rf(TASK_TYPE):
         for task in tqdm(tasks):
             if task["min_step_total_answerable"] > MAX_STEP:
                 continue
-
-            src = task["src_node"]
-            dst = task["dst_node"]
-
-            actions_list = [step["action"] for step in task["path_details"]]
-            sys_prompt=       (
-                f"Walkthrough:\n{walkthrough}\n\n"
-                f"The allowed actions are: {', '.join(actions)}.\n"
-                                        )
-            prompt = (
-
-                f"The list of locations are: {', '.join(locations)}.\n\n"
-                f"Starting from {src}, perform actions {actions_list}, where are you now?"
-            )
-
-            response = model(prompt,sys_prompt)['location']
-            predicted = extract_last_location(response)
-            print("predicted",predicted)
-            print("dst",dst)
-            if predicted == dst.lower():
-                correct += 1
-                judge_correct=True
-            else:
-                judge_correct=False
-            total += 1
-            each_json={
-                "question":prompt,
-                "response":response,
-                "predicted":predicted,
-                "dst":dst,
-                "judge_correct":judge_correct,
-                "easy":is_easy_df(task)
-
-            }
-            with open("results_each_desti_finding.jsonl", "a", encoding="utf-8") as f:
-                f.write(json.dumps(each_json, ensure_ascii=False) + "\n")
+            single_desti_finding(task)
 
     elif TASK_TYPE == "route_finding":
         tasks = load_jsonl(DATA_DIR / "night.all_pairs.jsonl")
@@ -175,51 +238,15 @@ def evaluate_model_on_df_rf(TASK_TYPE):
             if task["min_step_total_answerable"] > MAX_STEP:
                 continue
 
-            src = task["src_node"]
-            dst = task["dst_node"]
-            sys_prompt=       (
-                f"Walkthrough:\n{walkthrough}\n\n"
-                f"The allowed actions are: {', '.join(actions)}.\n"
-                f"The list of locations are: {', '.join(locations)}.\n\n"
-                                        )
-            prompt = (
-                f"How can you go from {src} to {dst}?\n"
-                f"Describe the trajectory in a Python list of dictionaries "
-                f"with keys 'prev_node', 'action', and 'node'."
-            )
+            single_route_finding(task)
 
-            response = model(prompt,sys_prompt,key_name="trajectory")['trajectory']
-            pred_path=None
-            path_eval=is_path_valid(response, src, dst,maze_graph)
-            if path_eval[0]:
-                correct += 1
-                judge_correct=True
-            else:
-                judge_correct=False
-
-            total += 1
-            print("predicted",response)
-            print("dst",dst)
-            each_json={
-                "question":prompt,
-                "response":response,
-                "predicted":pred_path,
-                "dst":dst,
-                "judge_correct":judge_correct,
-                "easy":is_easy_rf(task),
-                "judge_reason": str(path_eval),
-
-            }
-            with open("results_each_route_finding.jsonl", "a", encoding="utf-8") as f:
-                f.write(json.dumps(each_json, ensure_ascii=False) + "\n")
-
-    return {"total": total, "correct": correct, "accuracy": correct / total if total else 0}
+    # return {"total": total, "correct": correct, "accuracy": correct / total if total else 0}
 
 # Run evaluation
 # # route_finding/desti_finding
-data=evaluate_model_on_df_rf(TASK_TYPE="route_finding")
-with open("results.jsonl", "a", encoding="utf-8") as f:
-    f.write(json.dumps(data, ensure_ascii=False) + "\n")
-
+# evaluate_model_on_df_rf(TASK_TYPE="route_finding")
+# single_desti_finding({"src_node": "computer site", "dst_node": "maze of twisty passages (stop 2)", "diff_shortest": 0, "path_details": [{"prev_node": "computer site", "node": "hall outside computer site", "action": "northeast", "seen_in_forward": 1, "seen_in_reversed": 53, "edge_min_step": 1, "seen_in_forward_answerable": 1, "seen_in_reversed_answerable": 53, "edge_min_step_answerable": 1}, {"prev_node": "hall outside computer site", "node": "stairwell (third floor)", "action": "west", "seen_in_forward": 9, "seen_in_reversed": 52, "edge_min_step": 9, "seen_in_forward_answerable": 9, "seen_in_reversed_answerable": 52, "edge_min_step_answerable": 9}, {"prev_node": "stairwell (third floor)", "node": "stairwell (second floor)", "action": "down", "seen_in_forward": 10, "seen_in_reversed": 51, "edge_min_step": 10, "seen_in_forward_answerable": 10, "seen_in_reversed_answerable": 51, "edge_min_step_answerable": 10}, {"prev_node": "stairwell (second floor)", "node": "outside physics office", "action": "east", "seen_in_forward": 23, "seen_in_reversed": 50, "edge_min_step": 23, "seen_in_forward_answerable": 23, "seen_in_reversed_answerable": 50, "edge_min_step_answerable": 23}, {"prev_node": "outside physics office", "node": "hall (2nd floor, middle of north/south hall)", "action": "south", "seen_in_forward": 24, "seen_in_reversed": 49, "edge_min_step": 24, "seen_in_forward_answerable": 24, "seen_in_reversed_answerable": 49, "edge_min_step_answerable": 24}, {"prev_node": "hall (2nd floor, middle of north/south hall)", "node": "maze of twisty passages (stop 1)", "action": "down", "seen_in_forward": 64, "seen_in_reversed": 48, "edge_min_step": 48, "seen_in_forward_answerable": 64, "seen_in_reversed_answerable": 48, "edge_min_step_answerable": 48}, {"prev_node": "maze of twisty passages (stop 1)", "node": "maze of twisty passages (stop 2)", "action": "east", "seen_in_forward": 30, "seen_in_reversed": 47, "edge_min_step": 30, "seen_in_forward_answerable": 30, "seen_in_reversed_answerable": 47, "edge_min_step_answerable": 30}], "step_count": 7, "id": "eab5cd82effc87bb07a67209b36cee7b06812850e96292026657db2f76860ae1", "min_step_forward": 64, "min_step_total": 48, "min_step_forward_answerable": 64, "min_step_total_answerable": 48}
+# )
+draw_directional_maze_graph()
 # walkthrough = read_walkthrough(DATA_DIR / "night.walkthrough", 70)
 # print(walkthrough)
