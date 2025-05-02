@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>3D Graph Search</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; overflow: hidden; }
+    #graph { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      max-width: 400px;
+      font-size: 14px;
+    }
+    select, input {
+      width: 100%;
+      margin: 4px 0;
+    }
+    textarea {
+      width: 100%;
+      height: 60px;
+      margin-top: 8px;
+      font-family: monospace;
+      resize: none;
+    }
+    .success { color: green; font-weight: bold; }
+    .error { color: red; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<div id="graph"></div>
+
+<div id="controls">
+  <label>起点:
+    <select id="start-node"></select>
+  </label>
+  <label>终点:
+    <select id="end-node"></select>
+  </label>
+  <button onclick="searchPath()">🔍 搜索路径</button>
+
+  <label>动作序列（如: north,east）:
+    <input id="action-list" type="text" placeholder="动作用逗号分隔">
+  </label>
+  <button onclick="searchByActions()">🧭 验证动作路径</button>
+
+  <button onclick="resetHighlight()">🔄 重置高亮</button>
+
+  <textarea id="output" readonly></textarea>
+</div>
+
+<!-- 引入 CDN -->
+<script src="https://unpkg.com/three@0.160.1/build/three.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph"></script>
+
+<script>
+  let graph;
+  let nodeMap = {};
+  let adjacency = {};
+
+  fetch('/static/graph_data.json')
+          .then(res => res.json())
+          .then(data => {
+            data.links.forEach(link => {
+              const key = link.source;
+              if (!adjacency[key]) adjacency[key] = [];
+              adjacency[key].push({ target: link.target, action: link.action });
+            });
+
+            const startSel = document.getElementById('start-node');
+            const endSel = document.getElementById('end-node');
+
+            data.nodes.forEach(node => {
+              nodeMap[node.id] = node;
+              const opt1 = new Option(node.id, node.id);
+              const opt2 = new Option(node.id, node.id);
+              startSel.add(opt1);
+              endSel.add(opt2);
+            });
+
+            graph =             ForceGraph3D()(document.getElementById('graph'))
+                    .backgroundColor('#ffffff')  // 白色背景
+                    .graphData(data)
+                    .nodeLabel('id')
+                    .linkLabel('action')
+                    .linkColor(l => l.__highlight ? 'green' : (l.color || 'gray'))
+                    .linkWidth(l => l.__highlight ? 3 : (l.width || 1))
+                    .nodeColor(n => n.__highlight ? 'green' : 'lightgray')
+                    .linkCurvature(0.25)
+                    .linkDirectionalArrowLength(4)
+                    .linkDirectionalArrowRelPos(1);
+
+          });
+
+  function resetHighlight() {
+    graph.graphData().nodes.forEach(n => delete n.__highlight);
+    graph.graphData().links.forEach(l => delete l.__highlight);
+    graph.refresh();
+    // document.getElementById('output').className = '';
+    // document.getElementById('output').value = '';
+  }
+
+  function highlightPath(pathNodes, pathEdges) {
+    resetHighlight();
+    pathNodes.forEach(n => n.__highlight = true);
+    pathEdges.forEach(l => l.__highlight = true);
+
+    graph.nodeColor(n => n.__highlight ? 'limegreen' : 'lightgray');
+    graph.linkColor(l => l.__highlight ? 'limegreen' : (l.color || 'gray'));
+    graph.linkWidth(l => l.__highlight ? 3 : (l.width || 1));
+
+    graph.refresh();
+  }
+
+
+  // 用于比较 link 的 (source,target,action)
+  // 用于比较 link 的 (source,target,action)
+  function isEdge(l, from, to, action=null) {
+    const src = typeof l.source === 'object' ? l.source.id : l.source;
+    const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+    return src === from && tgt === to && (action === null || l.action === action);
+  }
+
+  function searchPath() {
+    const start = document.getElementById('start-node').value;
+    const end   = document.getElementById('end-node').value;
+    const output = document.getElementById('output');
+    output.className = '';
+    output.value = '';
+
+    if (!nodeMap[start] || !nodeMap[end]) {
+      output.className = 'error';
+      output.value = '起点或终点不存在。';
+      return;
+    }
+
+    // ---------- BFS，记录前驱和动作 ----------
+    const queue   = [start];
+    const visited = new Set([start]);
+    const parent  = {};                 // child -> {prev, action}
+
+    let found = false;
+    while (queue.length && !found) {
+      const cur = queue.shift();
+      (adjacency[cur] || []).forEach(({ target, action }) => {
+        if (visited.has(target)) return;
+        visited.add(target);
+        parent[target] = { prev: cur, action };
+        if (target === end) {
+          found = true;
+        } else {
+          queue.push(target);
+        }
+      });
+    }
+
+    if (!found) {
+      output.className = 'error';
+      output.value = '没有路径。';
+      return;
+    }
+
+    // ---------- 回溯重建路径 ----------
+    const nodesSeq   = [];
+    const actionsSeq = [];
+    for (let n = end; n !== undefined; n = parent[n]?.prev) {
+      nodesSeq.push(n);
+      if (parent[n]) actionsSeq.push(parent[n].action);
+    }
+    nodesSeq.reverse();         // 起点 → 终点
+    actionsSeq.reverse();       // 与 nodes 对齐 (nodes[i] --action[i]--> nodes[i+1])
+
+    // ---------- 生成文字输出 ----------
+    let outLine = ['路径：'];
+    for (let i = 0; i < actionsSeq.length; i++) {
+      outLine.push(`${nodesSeq[i]} --${actionsSeq[i]}-->`);
+    }
+    outLine.push(nodesSeq[nodesSeq.length - 1]);
+    output.value  = outLine.join(' ').toString();
+    console.log(outLine.join(' '))
+    console.log(output.value)
+    // ---------- 收集需要高亮的节点 / 边 ----------
+    const pathNodes = nodesSeq.map(id => nodeMap[id]);
+    const pathEdges = [];
+    for (let i = 0; i < actionsSeq.length; i++) {
+      const from = nodesSeq[i], to = nodesSeq[i + 1], act = actionsSeq[i];
+      const edge = graph.graphData().links.find(l => isEdge(l, from, to, act));
+      if (edge) pathEdges.push(edge);
+    }
+    highlightPath(pathNodes, pathEdges);
+  }
+
+
+
+  function searchByActions() {
+    const start = document.getElementById('start-node').value;
+    const actionList = document.getElementById('action-list').value.trim().toLowerCase().split(',').map(s => s.trim());
+    const output = document.getElementById('output');
+    output.className = '';
+    output.value = '';
+
+    if (!nodeMap[start]) {
+      output.className = 'error';
+      output.value = '起点不存在。';
+      return;
+    }
+
+    let current = start;
+    const path = [current];
+    const pathEdges = [];
+
+    for (let i = 0; i < actionList.length; i++) {
+      const action = actionList[i];
+      const nextEdge = (adjacency[current] || []).find(e => e.action === action);
+      if (!nextEdge) {
+        output.className = 'error';
+        output.value = `失败：第 ${i + 1} 步（动作 "${action}"）在节点 "${current}" 无对应边。`;
+        highlightPath(path.map(n => nodeMap[n]), pathEdges);
+        return;
+      }
+
+      current = nextEdge.target;
+      path.push(current);
+      const edge = graph.graphData().links.find(l => l.source === path[path.length - 2] && l.target === current && l.action === action);
+      if (edge) pathEdges.push(edge);
+    }
+
+    highlightPath(path.map(n => nodeMap[n]), pathEdges);
+    output.className = 'success';
+    output.value = '✅ 动作路径成功：\n' + path.join(' ➜ ');
+  }
+</script>
+</body>
+</html>
