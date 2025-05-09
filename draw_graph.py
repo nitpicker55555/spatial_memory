@@ -4,7 +4,7 @@ import networkx as nx
 from pathlib import Path
 
 app = Flask(__name__)
-topic='zork1'
+topic='night'
 DATA_DIR = Path(rf"D:/mango/data/{topic}")
 
 EDGE_FILE = DATA_DIR / f"{topic}.edges.json"
@@ -118,4 +118,4 @@ def index():
     return render_template("index.html")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True,host='0.0.0.0',port=8080)

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>3D Graph Incremental</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; overflow: hidden; }
+    #graph { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; }
+
+  </style>
+</head>
+
+<body>
+<div id="graph"></div>
+<div id="info-box">
+  <div><strong>Prompt:</strong><br><pre id="prompt-text"></pre></div>
+  <div><strong>Action:</strong><br><pre id="action-text"></pre></div>
+  <div><strong>Feedback:</strong><br><pre id="feedback-text"></pre></div>
+</div>
+
+<script src="https://unpkg.com/three@0.160.1/build/three.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph"></script>
+
+<script>
+  let graphInstance = null;
+  let nodeMap = {};
+  let adjacency = {};
+  // let intervalId = null;
+
+  function initGraph() {
+    graphInstance = ForceGraph3D()(document.getElementById('graph'))
+            .backgroundColor('#ffffff')
+            .nodeLabel('id')
+            .linkLabel('action')
+            .nodeColor(n => {
+              if (n.__highlightLevel) {
+                const alpha = n.__highlightLevel.toFixed(2);
+                return `rgba(50, 205, 50, ${alpha})`;
+              }
+              return 'lightgray';
+            })
+            .linkColor(l => {
+              if (l.__highlightLevel) {
+                const alpha = l.__highlightLevel.toFixed(2);
+                return `rgba(50, 205, 50, ${alpha})`;
+              }
+              return 'gray';
+            })
+            .linkWidth(l => l.__highlightLevel ? 3 : (l.width || 1))
+            .linkCurvature(0.25)
+            .linkDirectionalArrowLength(4)
+            .linkDirectionalArrowRelPos(1)
+            .cooldownTicks(60)
+            .d3Force('charge', null)   // ✅ 关闭斥力
+            .d3Force('center', null);  // ✅ 关闭居中吸力
+  }
+
+  function mergeGraphData(newData) {
+    const currentData = graphInstance.graphData();
+    const currentNodeIds = new Set(currentData.nodes.map(n => n.id));
+    const updatedNodes = [...currentData.nodes];
+    const updatedLinks = [...currentData.links];
+
+    // 1️⃣ 衰减所有高亮级别
+    updatedNodes.forEach(n => {
+      if (n.__highlightLevel) {
+        n.__highlightLevel *= 0.5;
+        if (n.__highlightLevel < 0.05) delete n.__highlightLevel;
+      }
+    });
+
+    updatedLinks.forEach(l => {
+      if (l.__highlightLevel) {
+        l.__highlightLevel *= 0.5;
+        if (l.__highlightLevel < 0.05) delete l.__highlightLevel;
+      }
+    });
+
+    // 2️⃣ 添加新节点
+    newData.nodes.forEach(n => {
+      if (!currentNodeIds.has(n.id)) {
+        n.fx = n.x;
+        n.fy = n.y;
+        n.fz = n.z;
+        updatedNodes.push(n);
+        nodeMap[n.id] = n;
+      }
+    });
+
+    // 3️⃣ 添加新边
+    const existingEdges = new Set(updatedLinks.map(l => `${l.source}|${l.target}|${l.action}`));
+    let lastEdge = null;
+
+    newData.links.forEach(l => {
+      const key = `${l.source}|${l.target}|${l.action}`;
+      if (!existingEdges.has(key)) {
+        updatedLinks.push(l);
+        lastEdge = l;
+        if (!adjacency[l.source]) adjacency[l.source] = [];
+        adjacency[l.source].push({ target: l.target, action: l.action });
+      }
+    });
+
+    // 4️⃣ 高亮最后边及其两个节点
+    if (lastEdge) {
+      lastEdge.__highlightLevel = 1;
+
+      const srcNode = updatedNodes.find(n => n.id === lastEdge.source);
+      const tgtNode = updatedNodes.find(n => n.id === lastEdge.target);
+
+      if (srcNode) srcNode.__highlightLevel = 1;
+      if (tgtNode) tgtNode.__highlightLevel = 1;
+    }
+
+    // 5️⃣ 应用更新
+    graphInstance.graphData({ nodes: updatedNodes, links: updatedLinks });
+  }
+
+
+  initGraph();
+
+  let firstStep = true;
+  let intervalId = setInterval(() => {
+    let url = '/graph_data';
+    if (firstStep) {
+      url += '?reset=true';
+      firstStep = false;
+    }
+
+    fetch(url)
+            .then(res => res.json())
+            .then(data => {
+              mergeGraphData(data);  // 渲染新数据
+              if (data.done) {
+                clearInterval(intervalId);
+                console.log("✅ 所有节点已加载完成，停止刷新。");
+              }
+            });
+  }, 2000);
+
+</script>
+
+</body>
+</html>

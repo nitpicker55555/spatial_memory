@@ -84,6 +84,18 @@
               startSel.add(opt1);
               endSel.add(opt2);
             });
+// 1. 检测完全重合的节点
+            const posMap = {};
+            data.nodes.forEach(n => {
+              const key = `${n.x},${n.y},${n.z}`;
+              if (!posMap[key]) posMap[key] = [];
+              posMap[key].push(n);
+            });
+            Object.values(posMap).forEach(group => {
+              if (group.length > 1) {
+                group.forEach(n => n.__overlap = true);  // 标记重合节点
+              }
+            });
 
             graph =             ForceGraph3D()(document.getElementById('graph'))
                     .backgroundColor('#ffffff')  // 白色背景
@@ -92,7 +104,12 @@
                     .linkLabel('action')
                     .linkColor(l => l.__highlight ? 'green' : (l.color || 'gray'))
                     .linkWidth(l => l.__highlight ? 3 : (l.width || 1))
-                    .nodeColor(n => n.__highlight ? 'green' : 'lightgray')
+                    .nodeColor(n =>
+                            n.__highlight ? 'green'
+                                    : n.__overlap ? '#800080'  // 紫色
+                                            : 'lightgray'
+                    )
+
                     .linkCurvature(0.25)
                     .linkDirectionalArrowLength(4)
                     .linkDirectionalArrowRelPos(1);

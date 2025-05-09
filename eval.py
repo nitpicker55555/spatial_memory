@@ -13,7 +13,7 @@ DATA_DIR = Path(r"D:/mango/data/night")
 MAX_STEP = 70
 
 # Dummy model function interface
-def model(prompt: str,sys_prompt,key_name='location') -> str:
+def model(walkthrough:list,prompt: str,sys_prompt,key_name='location') -> str:
     sys_prompt_ori="""
     please answer question in json format:
     {
@@ -25,7 +25,7 @@ def model(prompt: str,sys_prompt,key_name='location') -> str:
     print("prompt",prompt)
     # 创建消息
     messages = [
-        message_template('system', sys_prompt_ori+sys_prompt),
+        message_template('system', sys_prompt_ori+sys_prompt + ". walkthrough: "+str(walkthrough)),
         message_template('user', prompt)
     ]
 
@@ -42,7 +42,7 @@ def load_json(path: Path) -> Dict:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
-def read_walkthrough(path: Path, max_steps: int = 70) -> str:
+def read_walkthrough(path: Path, max_steps: int = 70) -> list:
     with path.open("r", encoding="utf-8") as f:
         lines = f.readlines()
 
@@ -61,7 +61,7 @@ def read_walkthrough(path: Path, max_steps: int = 70) -> str:
 
     if current:
         steps.append("".join(current))
-    return "\n".join(steps[:max_steps])
+    return steps[:max_steps]
     # return "\n".join(steps[:max_steps])
 
 def extract_last_location(response: str) -> str:
@@ -121,7 +121,6 @@ def single_desti_finding(task):
 
     actions_list = [step["action"] for step in task["path_details"]]
     sys_prompt = (
-        f"Walkthrough:\n{walkthrough}\n\n"
         f"The allowed actions are: {', '.join(actions)}.\n"
     )
     prompt = (
@@ -130,7 +129,7 @@ def single_desti_finding(task):
         f"Starting from {src}, perform actions {actions_list}, where are you now?"
     )
 
-    response = model(prompt, sys_prompt)['location']
+    response = model(walkthrough,prompt, sys_prompt)['location']
     predicted = extract_last_location(response)
 
     if predicted == dst.lower():
@@ -155,6 +154,8 @@ def single_desti_finding(task):
         f.write(json.dumps(each_json, ensure_ascii=False) + "\n")
 
 
+
+
 # If the graph is already built, draw it
 
 def single_route_finding(task):
@@ -173,7 +174,6 @@ def single_route_finding(task):
     src = task["src_node"]
     dst = task["dst_node"]
     sys_prompt = (
-        f"Walkthrough:\n{walkthrough}\n\n"
         f"The allowed actions are: {', '.join(actions)}.\n"
         f"The list of locations are: {', '.join(locations)}.\n\n"
     )
@@ -183,7 +183,7 @@ def single_route_finding(task):
         f"with keys 'prev_node', 'action', and 'node'."
     )
 
-    response = model(prompt, sys_prompt, key_name="trajectory")['trajectory']
+    response = model(walkthrough, prompt, sys_prompt, key_name="trajectory")['trajectory']
     pred_path = None
     path_eval = is_path_valid(response, src, dst, maze_graph)
     if path_eval[0]:
@@ -210,9 +210,7 @@ def single_route_finding(task):
         f.write(json.dumps(each_json, ensure_ascii=False) + "\n")
 # --------- MAIN EVALUATION FUNCTION ---------
 def evaluate_model_on_df_rf(TASK_TYPE):
-    walkthrough = read_walkthrough(DATA_DIR / "night.walkthrough", MAX_STEP)
-    actions = load_json(DATA_DIR / "night.actions.json")
-    locations = load_json(DATA_DIR / "night.locations.json")
+
     edges_data = load_json(DATA_DIR / "night.edges.json")
 
     # Build maze graph (directed)
@@ -247,6 +245,8 @@ def evaluate_model_on_df_rf(TASK_TYPE):
 # evaluate_model_on_df_rf(TASK_TYPE="route_finding")
 # single_desti_finding({"src_node": "computer site", "dst_node": "maze of twisty passages (stop 2)", "diff_shortest": 0, "path_details": [{"prev_node": "computer site", "node": "hall outside computer site", "action": "northeast", "seen_in_forward": 1, "seen_in_reversed": 53, "edge_min_step": 1, "seen_in_forward_answerable": 1, "seen_in_reversed_answerable": 53, "edge_min_step_answerable": 1}, {"prev_node": "hall outside computer site", "node": "stairwell (third floor)", "action": "west", "seen_in_forward": 9, "seen_in_reversed": 52, "edge_min_step": 9, "seen_in_forward_answerable": 9, "seen_in_reversed_answerable": 52, "edge_min_step_answerable": 9}, {"prev_node": "stairwell (third floor)", "node": "stairwell (second floor)", "action": "down", "seen_in_forward": 10, "seen_in_reversed": 51, "edge_min_step": 10, "seen_in_forward_answerable": 10, "seen_in_reversed_answerable": 51, "edge_min_step_answerable": 10}, {"prev_node": "stairwell (second floor)", "node": "outside physics office", "action": "east", "seen_in_forward": 23, "seen_in_reversed": 50, "edge_min_step": 23, "seen_in_forward_answerable": 23, "seen_in_reversed_answerable": 50, "edge_min_step_answerable": 23}, {"prev_node": "outside physics office", "node": "hall (2nd floor, middle of north/south hall)", "action": "south", "seen_in_forward": 24, "seen_in_reversed": 49, "edge_min_step": 24, "seen_in_forward_answerable": 24, "seen_in_reversed_answerable": 49, "edge_min_step_answerable": 24}, {"prev_node": "hall (2nd floor, middle of north/south hall)", "node": "maze of twisty passages (stop 1)", "action": "down", "seen_in_forward": 64, "seen_in_reversed": 48, "edge_min_step": 48, "seen_in_forward_answerable": 64, "seen_in_reversed_answerable": 48, "edge_min_step_answerable": 48}, {"prev_node": "maze of twisty passages (stop 1)", "node": "maze of twisty passages (stop 2)", "action": "east", "seen_in_forward": 30, "seen_in_reversed": 47, "edge_min_step": 30, "seen_in_forward_answerable": 30, "seen_in_reversed_answerable": 47, "edge_min_step_answerable": 30}], "step_count": 7, "id": "eab5cd82effc87bb07a67209b36cee7b06812850e96292026657db2f76860ae1", "min_step_forward": 64, "min_step_total": 48, "min_step_forward_answerable": 64, "min_step_total_answerable": 48}
 # )
-draw_directional_maze_graph()
+
 # walkthrough = read_walkthrough(DATA_DIR / "night.walkthrough", 70)
-# print(walkthrough)
+# for i in walkthrough:
+#     print("????????????????????????")
+#     print(i)
