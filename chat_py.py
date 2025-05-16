@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 os.environ['OPENAI_API_KEY'] = os.getenv("OPENAI_API_KEY")
+# os.environ['OPENAI_API_KEY'] = os.getenv("api_hub")
 # os.environ['OPENAI_BASE_URL'] = "https://api.openai-hub.com/v1"
 client = OpenAI()
 
@@ -62,6 +63,8 @@ def chat_single(messages: List[Dict[str, str]],
             temperature=temperature,
             messages=messages
         )
+        if verbose:
+            print(response.choices[0].message.content)
         return json.loads(response.choices[0].message.content)
     elif mode == 'json_few_shot':
         response = client.chat.completions.create(
@@ -80,6 +83,8 @@ def chat_single(messages: List[Dict[str, str]],
             messages=messages,
             temperature=temperature,
         )
+        if verbose:
+            print(response.choices[0].message.content)
         return response.choices[0].message.content
 
 

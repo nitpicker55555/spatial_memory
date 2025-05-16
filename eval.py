@@ -14,6 +14,8 @@ MAX_STEP = 70
 
 # Dummy model function interface
 def model(walkthrough:list,prompt: str,sys_prompt,key_name='location') -> str:
+    # prompt is question
+
     sys_prompt_ori="""
     please answer question in json format:
     {
